@@ -1,0 +1,125 @@
+---
+title: "Practical_Machine_Learning_Project"
+author: "Sihwan Kim"
+date: '2020 3 29 '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Practical Machine Learning Project
+
+## Synopsis
+The main section has three parts
+1. Pre-analysis: Select meaningful variables to make a prediction. 
+2. Machine learning: Using a subset of training data (10% of the training set), we will compare accuracies of learning models using three methods - "CART", "GBM", and "Random Forest(RF)".  
+3. Final model: The RF showed best accuracy, so with a subset of traning data (70% of the training set), we will make a final learning model and we will get the answer of testing set.
+
+## Pre-analysis (Exploring data)
+First, we read csv files:  
+```{r data, results=FALSE}
+training0<-read.csv('pml-training.csv')
+testing0<-read.csv('pml-testing.csv')
+```
+
+Next, columns with acceptable names are selected, and predictors with many NAs or near-zero variances are excluded.  
+```{r data_1}
+library(caret)
+dcol <- colnames(training0) 
+training <- training0[,grep("belt|forearm|arm|dumbbell",dcol)] # column names
+training <- training [,colSums(is.na(training)) < 19000] # columns with NAs are excluded
+dnzv <- nearZeroVar(training) # variables with near-zero variance
+training <- training[,-dnzv]
+training <- cbind(training, classe = training0$classe); rm(training0) # Training set
+```
+
+## Machine learning  
+### CART method  
+First, we try "CART" method on the training data set.  
+We have two sets: mytrain to make a prediction model, and mytesting to test models.  
+```{r rcart}
+set.seed(8484)
+inTrain<- createDataPartition(training$classe, p=0.1, list=FALSE)
+inTesting<-createDataPartition(training$classe, p=0.1, list=FALSE)
+mytrain <- training[inTrain,]
+  mytesting <-training[inTesting,]
+  fit_rp<- train(classe ~., data = mytrain, method = "rpart")
+           # predict
+  mypd <- predict(fit_rp, newdata = mytesting)
+  rpaccuracy <- confusionMatrix(mypd,mytesting$classe)$overall['Accuracy']
+```  
+  
+```{r rcart_print}
+  print(rpaccuracy)
+```
+  
+```{r racrt_plot1, results=FALSE}
+    suppressMessages(library(rattle))
+  fancyRpartPlot(fit_rp$finalModel)
+```  
+  
+As you see, the accuracy was not acceptable, try another model using "Gradient boost" method.  
+
+
+### GBM method  
+```{r gb}
+fit_gb <-  train(classe ~., data = mytrain, method="gbm",verbose=FALSE)
+mypd <- predict(fit_gb, newdata = mytesting)
+gbaccuracy <- confusionMatrix(mypd,mytesting$classe)$overall['Accuracy']
+```
+  
+And we see the acceptable accuracy of GBM model :  
+```{r gb_print}
+print(gbaccuracy)
+```
+  
+### Random forset method
+Next, we test the "Random Forest" method.  
+```{r rf}
+fitControl <- trainControl( method = "repeatedcv", number = 2)
+fit_rf <- train(classe ~., data = mytrain, method = "rf", fitControl = trainControl )
+mypd <- predict(fit_rf, newdata = mytesting) 
+rfaccuracy <- confusionMatrix(mypd,mytesting$classe)$overall['Accuracy']
+```
+  
+The accuracy of this model is:  
+```{r rf_print}
+print(rfaccuracy)
+```
+  
+We will simply compare accuracies of the three models.  
+```{r accu}
+miniaccu <- rbind( data.frame(Mechanism="CART", Accuracy = rpaccuracy),
+                   data.frame(Mechanism="Random forest",Accuracy=rfaccuracy),
+                  data.frame(Mechanism="Gradient boosting", Accuracy=gbaccuracy))
+library(ggplot2)
+ggplot(data=miniaccu, aes(x=Mechanism,y=Accuracy,colour=Mechanism)) +geom_point(size=5)+
+  ggtitle("Mechanism and accuracy")+xlab("Mechanism")+ylab("Accuracy")
+```  
+  
+So "Random forest" generates the best prediction model.  
+
+
+## Final model
+```{r model_final}
+set.seed(8484)
+inTrain<- createDataPartition(training$classe, p=0.7, list=FALSE)
+mytrain <- training[inTrain,]
+mylearn <- train(classe ~., data = mytrain, method = "rf", fitControl = trainControl )
+```
+  
+'mylearn' is the last prediction model with the training set.  
+```{r_prediction}
+library(randomForest)
+varImpPlot(mylearn$finalModel, main = "Importance of Features in The Final Model")
+```  
+  
+So we have the final answer:  
+```{r answer}
+testing<-testing0[,colnames(training)[1:52]]  # To select appropriate columns
+pdlearn <- predict(mylearn,testing) # Prediction of training samples
+names(pdlearn)<-1:20
+print(pdlearn)
+```
